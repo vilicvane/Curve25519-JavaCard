@@ -22,6 +22,50 @@ when building with [ant-javacard](https://github.com/martinpaljak/ant-javacard).
 
 See the [sample](sample/) for code and usage instructions.
 
+## Source implementation
+
+The published repository contains only the compiled `Curve25519.cap` and the export jar: the Ed25519
+and X25519 arithmetic lives in the NXP JCOP firmware, and the package itself is a thin wrapper that
+stores 32-byte keys, reverses byte order and calls the private JCOP APIs. That source was not
+published.
+
+This repository now also contains a source reconstruction of that wrapper, recovered by disassembling
+the released CAP file and reimplementing what it does:
+
+```
+src/org/suut/javacard/pki/curve25519/   the library, 8 files (the public API is unchanged)
+stub/jopx/                              build-time placeholder for the JCOP package, never installed
+tools/ExpPatch.java                     rewrites the stub export file to the recovered JCOP tokens
+tools/cpdump.py                         prints the Import and ConstantPool components of a CAP
+docs/RECONSTRUCTION.md                  how the wrapper was recovered, and what was verified
+```
+
+Build it with:
+
+```sh
+./build.sh
+```
+
+which needs a JavaCard 3.0.5 development kit (`JC_KIT` overrides its location) and a JDK, and writes
+`build/out/org/suut/javacard/pki/curve25519/javacard/curve25519.{cap,exp,jca}`. The generated export
+file is byte-for-byte identical to the one inside `curve25519.jar`, so code compiled against the
+original export file links against this implementation unchanged. The CAP itself is not byte-identical
+to the released one — a different converter and a different method layout — but it references the same
+JCOP package, class tokens and method tokens.
+
+The `stub/` package exists only to give the converter something to link against at build time. It
+must never be installed: its AID is the AID of the JCOP package that is already in the card's ROM.
+Only `curve25519.cap` is meant for the card; installing and exercising it still has to happen on real
+hardware, as described in `docs/RECONSTRUCTION.md`.
+
+### Attribution
+
+The source reconstruction, the build script, the reconstruction notes and the editor configuration
+were written by **deepseek-flash** (provider `deepseek-official`, through the DeepSeek Harness coding
+agent) on 2026-10-20. The JCOP token semantics were inferred from the bytecode of the released CAP
+file, which is exactly the review path the Security section below invites; they have not been
+confirmed on a card yet, because the J3R452 was not available.
+
 ## API
 
 `Curve25519Signature` and `Curve25519KeyAgreement` need instances to be allocated with `new` in order to allocate
