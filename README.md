@@ -37,6 +37,7 @@ src/org/suut/javacard/pki/curve25519/   the library, 8 files (the public API is 
 stub/jopx/                              build-time placeholder for the JCOP package, never installed
 tools/ExpPatch.java                     rewrites the stub export file to the recovered JCOP tokens
 tools/cpdump.py                         prints the Import and ConstantPool components of a CAP
+test/                                   an on-card test applet and its driver
 docs/RECONSTRUCTION.md                  how the wrapper was recovered, and what was verified
 ```
 
@@ -55,8 +56,14 @@ JCOP package, class tokens and method tokens.
 
 The `stub/` package exists only to give the converter something to link against at build time. It
 must never be installed: its AID is the AID of the JCOP package that is already in the card's ROM.
-Only `curve25519.cap` is meant for the card; installing and exercising it still has to happen on real
-hardware, as described in `docs/RECONSTRUCTION.md`.
+Only `curve25519.cap` is meant for the card.
+
+The library has been deployed and exercised on a J3R452: `test/build-test.sh` builds a test applet,
+`test/install-card.sh` loads both CAPs through `gp.exe`, and `test/card_test.py` drives the applet and
+compares every result with an independent RFC 8032 / RFC 7748 implementation. Ed25519 signatures, the
+X25519 shared secret and both key generators match, and 20 of 20 checks pass. See
+`docs/RECONSTRUCTION.md` for the details, including an X25519 byte-order quirk that the original
+README does not mention.
 
 ### Attribution
 

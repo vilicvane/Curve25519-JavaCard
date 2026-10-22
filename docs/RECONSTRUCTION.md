@@ -106,6 +106,13 @@ libs/api_classic-3.0.5.jar              the Java Card API jar, committed, see li
 libs/javacard-tools.jar                 converter/javacard-tools jar, local only, git-ignored
 build.sh                                the whole build, end to end
 .vscode/settings.json                   classpath for the Java language server
+test/applet/src/.../Curve25519TestApplet.java
+                                        test applet, one APDU per operation
+test/build-test.sh                      builds the library and the test applet
+test/install-card.sh                    deploys both CAPs to a card through gp.exe
+test/card/ApduRunner.java               single-session PC/SC driver (runs under the Windows JDK)
+test/card_test.py                       on-card test driver, compares everything with ref25519.py
+test/ref25519.py                        standalone RFC 8032 / RFC 7748 reference implementation
 ```
 
 The public API is unchanged: three interfaces, three classes, the same method descriptors, the same
@@ -251,31 +258,103 @@ One behaviour that is easy to get wrong: `sign` and `keyExchange` wrap `beginTra
 throws `TransactionException`; the original swallows it and rethrows the original exception. The
 source reproduces that nesting, and the rebuilt CAP has the same two handler pairs as the original.
 
-## Not verified
+## On-card verification
 
-The J3R452 card had not arrived, so none of the following has been exercised:
+The J3R452 arrived, and everything below was executed against it. The card reports `ICType=D600`,
+`ICBatchIdentifier=4528`, fabricated 2025-12-02. Its GlobalPlatform keys were replaced with the
+well-known development keys (`404142434445464748494A4B4C4D4E4F`); the factory keys printed on the
+card holder no longer authenticate, which is worth knowing before the card is reused.
 
-* installation of the rebuilt CAP on a card (`gp.jar --load`);
-* that the card's ROM JCOPX package really exposes those tokens with those calling conventions;
-* functional Ed25519 / X25519 results;
-* performance (the README claims about 220 ms per EdDSA signature and about 50 ms per X25519 key
-  exchange).
-
-Suggested card checks:
+Deployment (the CAP files are copied to a Windows-visible directory because `gp.exe` is a Windows
+binary and its `--load` wants a plain file name):
 
 ```sh
-java -jar gp.jar --load build/out/org/suut/javacard/pki/curve25519/javacard/curve25519.cap
+JOPX_VERSION=1.24 ./test/build-test.sh      # library CAP plus the test applet CAP
+./test/install-card.sh                      # deletes, then loads the library and installs the applet
 ```
 
-then build and install `sample/` (it imports `../curve25519.jar`, so replace that import with the
-rebuilt `curve25519.exp`, or regenerate the jar from `build/out`), and drive the APDUs the sample
-documents: `00 10 00 00 00` (Ed25519 public key), `00 10 01 00 00` (X25519 public key),
-`00 20 00 00 40 <sha512> 00` (sign), `00 40 00 00 80 <sha512><signature>` (verify),
-`00 30 00 00 20 <peer public key> 00` (key exchange).
+Both loads succeeded:
 
-Note that `sample/src/.../Curve25519Test.java` has a pre-existing bug that was intentionally not
-touched: in the `0x40` branch, `verify(...)` sits after a `throw`, so it is unreachable and the
-verify APDU always fails. Fix it before trusting that command.
+```
+curve25519.cap loaded: org.suut.javacard.pki.curve25519 FF00025519
+cardtest.cap loaded: org.suut.javacard.pki.curve25519.cardtest F0435552564501
+```
+
+This is the decisive check that the reconstructed token mapping is right. The loader resolves every
+external reference when it finishes loading a package, so a class token or method token that does not
+exist in the card's JCOPX package fails the load with `6A80`. Loading succeeded, which means class
+`1` (`sign`/`verify`/`keyAgreement`), classes `9`/`10` (the private and public key interfaces) and
+class `11` (`createKey`/`genKeyPair`) all exist with exactly those method tokens, and the card's
+JCOPX package is at least version 1.24 (the version the package imports).
+
+The functional test then passed **20 of 20 checks** (`python3 -u test/card_test.py --timing`), all of
+them compared against `test/ref25519.py`:
+
+* importing and reading back an Ed25519 seed and public key;
+* `sign` returns 64 bytes and, byte for byte, `Ed25519(seed, message)` over the *input bytes* — the
+  library does not hash first, so the caller supplies the message (or its own hash) directly. The
+  type byte is `0xA3`;
+* `verify` accepts `message || signature` and rejects a signature with one flipped bit (`6982`);
+* a 16 byte `setW` and a short signature are both rejected as `6700`;
+* the X25519 shared secret for the RFC 7748 section 6.1 pair equals the RFC value;
+* `genKeyPair` produces a seed whose Ed25519 public key, and an X25519 scalar whose curve public key,
+  match the value returned on the card.
+
+### X25519 byte order
+
+One asymmetry of the original wrapper is worth spelling out, because it is easy to mistake for a
+reconstruction bug (it is not: the bytecode of the released CAP does the same):
+
+* `getW`/`setW`/`keyExchange` reverse the 32 bytes, so public keys and shared secrets are exchanged
+  in RFC 7748 little-endian order;
+* `getS`/`setS` forward the scalar unchanged, and JCOPX itself treats the scalar as big-endian.
+
+So a scalar that a host wants in RFC 7748 little-endian order has to be reversed before `setS`, and
+the value read back by `getS` (including the one produced by `genKeyPair`) has to be reversed before
+it is fed to an RFC 7748 implementation. `test/card_test.py` does exactly that; the original README
+does not mention the quirk.
+
+Two more JCOPX details found on the card: `getSize()` returns 0 for these keys, and
+`getKeyMemoryType()` returns the memory type that was requested when the key was built (0 for
+persistent keys), so neither can be used to verify that a key is initialised — `isInitialized()`
+can.
+
+### Performance
+
+Measured over PC/SC, round trip included (`--timing`):
+
+| operation | time |
+| --- | --- |
+| EdDSA sign | 259.5 ms |
+| EdDSA verify | 51.8 ms |
+| X25519 key exchange | 39.4 ms |
+| `genKeyPair` EdDSA | 93.2 ms |
+| `genKeyPair` X25519 | 41.1 ms |
+
+The signature is close to the ~220 ms the README claims, and the key exchange is faster than the
+~50 ms it claims.
+
+### A card that does not work: J3R180
+
+The first card used for these experiments was a J3R180 (`ICType=D321`, batch 4839). Neither the
+original `Curve25519.cap` nor the rebuilt library could be loaded into it: the load failed with
+`6A80` at the last block, which is the external reference resolution step. Probing it with throwaway
+applets showed its JCOPX package only has 8 classes (tokens 0..7) with 2, 13, 2, 1, 2, 1, 1 and 10
+static methods, and no class `9`/`10`/`11` at all, i.e. a different layout from the 1.24 package the
+released CAP imports. That is why the original binary cannot be installed on a J3R180, and it is not
+something the reconstruction can fix: the card simply does not have those entry points.
+
+## Not verified
+
+* the `sample/` applet has not been run on the card: it imports `../curve25519.jar` and pins export
+  version 1.0, so it can only be used after pointing that import at the rebuilt
+  `build/out/.../curve25519.exp`, and its verify APDU is broken anyway (see below);
+* JCOPX versions above 1.24 on newer cards: only 1.24 was exercised;
+* behaviour on a card whose JCOPX package is older than 1.24 (see the J3R180 note above).
+
+`sample/src/.../Curve25519Test.java` has a pre-existing bug that was intentionally not touched: in
+the `0x40` branch, `verify(...)` sits after a `throw`, so it is unreachable and the verify APDU can
+never succeed. Fix it before trusting that command.
 
 ## Notes
 

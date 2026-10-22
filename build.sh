@@ -5,8 +5,13 @@
 # The build needs a JavaCard 3.0.5 development kit that ships the converter, plus a JDK that can
 # run it. Both are taken from the environment when present:
 #
-#   JAVA_HOME  JDK to use           (default: /tmp/jdk11)
-#   JC_KIT     JavaCard dev kit     (default: <monoid-javacard>/libs-sdks/jc310b43_kit)
+#   JAVA_HOME     JDK to use           (default: /tmp/jdk11)
+#   JC_KIT        JavaCard dev kit     (default: <monoid-javacard>/libs-sdks/jc310b43_kit)
+#   JOPX_VERSION  JOPX package version the import is compiled against (default: 1.24)
+#
+# JOPX_VERSION is the version written into the CAP's import of the card's JOPX package. A card can
+# only load a package whose requested import version is not newer than the JCOPX package it
+# provides, so a card with an older JCOPX needs e.g. JOPX_VERSION=1.18 ./build.sh.
 #
 # Usage: ./build.sh [--verify]
 #
@@ -42,7 +47,7 @@ SDK_CP="$KIT/lib/tools.jar:$KIT/lib/commons-cli-1.0.jar:$KIT/lib/commons-logging
 CONVERTER=com.sun.javacard.converter.Main
 
 JOPX_AID=0xD2:0x76:0x00:0x00:0x85:0x30:0x4A:0x43:0x4F:0x50:0x58
-JOPX_VERSION=1.24
+JOPX_VERSION=${JOPX_VERSION:-1.24}
 JOPX_PACKAGE=jopx
 
 PACKAGE=org.suut.javacard.pki.curve25519

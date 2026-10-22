@@ -1,4 +1,10 @@
 {
-  "java.project.sourcePaths": ["src", "stub"],
-  "java.project.referencedLibraries": ["libs/**/*.jar"]
+  "java.project.referencedLibraries": [
+    "libs/**/*.jar"
+  ],
+  "java.project.sourcePaths": [
+    "src",
+    "stub",
+    "test/applet/src"
+  ]
 }

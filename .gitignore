@@ -2,3 +2,4 @@
 *.jar
 !libs/api_classic-3.0.5.jar
 build/
+__pycache__/
