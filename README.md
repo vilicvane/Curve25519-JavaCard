@@ -70,8 +70,9 @@ README does not mention.
 The source reconstruction, the build script, the reconstruction notes and the editor configuration
 were written by **deepseek-flash** (provider `deepseek-official`, through the DeepSeek Harness coding
 agent) on 2026-10-20. The JCOP token semantics were inferred from the bytecode of the released CAP
-file, which is exactly the review path the Security section below invites; they have not been
-confirmed on a card yet, because the J3R452 was not available.
+file, which is exactly the review path the Security section below invites; they have since been
+confirmed on a J3R452, as described above and in `docs/RECONSTRUCTION.md`. A J3R180 loads neither the
+original `Curve25519.cap` nor the rebuilt one, because its JCOPX package has a different class layout.
 
 ## API
 
